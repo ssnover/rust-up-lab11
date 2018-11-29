@@ -1,3 +1,10 @@
+/*
+ * file: main.rs
+ * purpose: Entry point of the application. Defines the panic handler, sets up
+ *          peripherals for the application state machine, and starts the state
+ *          machine.
+ */
+
 #![no_std]
 
 extern crate msp430;
@@ -5,13 +12,9 @@ extern crate msp430g2553;
 
 use msp430::{asm, interrupt};
 use msp430g2553::PORT_1_2;
-
 use core::panic::PanicInfo;
 
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
-}
+mod watchdog;
 
 fn delay(n: u16) {
     let mut i = 0;
@@ -26,17 +29,15 @@ fn delay(n: u16) {
     }
 }
 
-// P0 = red LED
-// P6 = green LED
+/*
+ * Entry point of the application. Initializes peripherals and executes the
+ * application state machine.
+ */
 fn main() {
-    interrupt::free(|cs| {
-        // Disable watchdog
-        let wdt = msp430g2553::WATCHDOG_TIMER.borrow(&cs);
-        wdt.wdtctl.write(|w| {
-            unsafe { w.bits(0x5A00) } // password
-            .wdthold().set_bit()
-        });
+    // Disable the watchdog
+    watchdog::disable();
 
+    interrupt::free(|cs| {
         let port_1_2 = PORT_1_2.borrow(cs);
 
         // set P0 high and P6 low
@@ -58,4 +59,12 @@ fn main() {
             );
         }
     });
+}
+
+/* 
+ * On a panic, this function executes to prevent continued undefined behavior.
+ */
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
 }
