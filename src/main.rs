@@ -7,26 +7,19 @@
 
 #![no_std]
 
+#![feature(abi_msp430_interrupt)]
 extern crate msp430;
+#[macro_use(interrupt)]
 extern crate msp430g2553;
 
-use msp430::{asm, interrupt};
 use msp430g2553::PORT_1_2;
 use core::panic::PanicInfo;
 
 mod watchdog;
+mod system_tick;
 
-fn delay(n: u16) {
-    let mut i = 0;
-    loop {
-        asm::nop();
-
-        i += 1;
-
-        if i == n {
-            break;
-        }
-    }
+fn check_for_system_tick() -> bool {
+    unsafe { system_tick::FLAG }
 }
 
 /*
@@ -36,7 +29,28 @@ fn delay(n: u16) {
 fn main() {
     // Disable the watchdog
     watchdog::disable();
+    unsafe {
+        msp430::giinterrupt::enable();
+    }
 
+    // Set up the timer for the system tick to run at 100 Hz
+    system_tick::init(100);
+    system_tick::enable();
+
+    let mut counter: u8 = 0;
+
+    loop {
+        if check_for_system_tick() {
+            unsafe { system_tick::FLAG = false; } 
+            // execute state machine
+            if counter == 100 {
+                counter = 0;
+                toggle_leds();
+            }
+            counter += 1;
+        }
+    }
+/*
     interrupt::free(|cs| {
         let port_1_2 = PORT_1_2.borrow(cs);
 
@@ -49,15 +63,22 @@ fn main() {
         port_1_2
             .p1dir
             .modify(|_, w| w.p0().set_bit().p6().set_bit());
+    });
 
-        loop {
-            delay(30_000);
+    loop {
+        delay(30_000);
+        // toggle outputs
+        toggle_leds();
+    }
+    */
+}
 
-            // toggle outputs
-            port_1_2.p1out.modify(
-                |r, w| w.p0().bit(!r.p0().bit()).p6().bit(!r.p6().bit()),
-            );
-        }
+fn toggle_leds() {
+    msp430::interrupt::free(|cs| {
+        let gpio_port = PORT_1_2.borrow(&cs);
+        gpio_port.p1out.modify(
+            |r, w| w.p0().bit(!r.p0().bit()).p6().bit(!r.p6().bit()),
+        );
     });
 }
 
